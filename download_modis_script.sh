@@ -10,7 +10,7 @@ echo 'Start Pre-processing step 1: download MODIS'
 
 # Preparation for logging in and downloading the data, create files inside folder of script.
 touch .urs_netrc
-echo 'machine urs.earthdata.nasa.gov login chiemvs password FR2WS!nS' > .urs_netrc
+echo 'machine urs.earthdata.nasa.gov login chiemvs password Earthdata123' > .urs_netrc
 chmod 0600 .urs_netrc
 
 touch .urs_cookies
