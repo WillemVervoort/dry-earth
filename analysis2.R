@@ -17,6 +17,10 @@ require(hydroGOF)
 
 load("../DATA/Set2_p25deg.RData")
 
+# Spatial classification by a left join: creates NA in the level variables when cells do not belong to a group.
+class_p25 <- read.csv("../DATA/spatial_classification_p25deg.csv")
+Set2_p25deg <- left_join(x = Set2_p25deg, y = class_p25)
+
 # Add model labels
 Set2_p25deg$inst <- factor(x = Set2_p25deg$inst, levels = c("ecmwf", "polytechfr", "uu", "anu"), labels = c("H-TESSEL", "ORCHIDEE", "PCR-GLOBWB", "W3RA"))
 
@@ -53,6 +57,7 @@ modelkge <- Set2_p25deg %>% filter(var == "Precip-PotEvap" & !is.na(inst)) %>% g
 # Function for computation of Autocorrelation and confidence intervals. Needs to be supplied with a numerical vector that contains the timeserie
 # Chatfield's Analysis of Time Series (1980) states that in the limit the variance in r is normally distributed and has a variance equal to 1/n_obs so stdev is (1/(n_obs))^0.5
 # We make it into a two-tailed confidence interval. See also https://stats.stackexchange.com/questions/211628/
+# It can report the full output, the maximum lag at which autocorrelation is significantly different from zero, and the last lag in which there is uninterrupted (subsequent) significant positive autocorrelation. 
 acf_adapted <- function(timeserie, conf_level = 0.95, lag.max = 12, report = "full") {
   acf_output <- acf(timeserie, lag.max = lag.max, plot = FALSE)
   r_upper <- qnorm((1+conf_level)/2) * 1/sqrt(acf_output$n.used) # Build the confidence interval of a normal distribution around zero (outside these bounds the r differs significantly from zero)
@@ -66,20 +71,32 @@ acf_adapted <- function(timeserie, conf_level = 0.95, lag.max = 12, report = "fu
     } else {
       return(output$lag[max(which(output$diff_from_zero))]) # This happens for nearly all other timeseries (autocorrelation at lag 0 is always 1 so this is always significantly different from zero)
     }
+  } else if (report == "sublag") {
+    if (all(is.na(output$r))) { # short routine for timeseries that are all 0, can occur for certain cells in variable TVeg
+      return(as.numeric(NA))
+    } else {
+      runlengths <- rle(output$diff_from_zero) # Provides a list of values and the length of its uninterrupted repetition in the boolean series.
+      return(ifelse(runlengths$values[1], yes = output$lag[runlengths$lengths[1]], no = NA)) # We want the length of uninterrupted petition when the first series is TRUE. Then we select the lag belonging to that position in the Boolean series
+    }
   } else {
-    stop("provide correct way of reporting: full or maxlag")
+    stop("provide correct way of reporting: full, maxlag or sublag")
   }
 }
 
-# Compute and plot spatial distributions (boxplot) of maximum lag with significant autocorrelation
-# There are cells where the original values contain 0 transpiration. They are not missing. E.g. Set2_p25deg %>% filter(var == "TVeg", inst == "ORCHIDEE", cellnr == 52). But they do result in warnings as the r becomes NaN
-max_memory <- Set2_p25deg %>% group_by(var, inst, cellnr) %>% summarize(maxlag = ifelse(test = any(is.na(norm)), yes = as.numeric(NA), no = acf_adapted(timeserie = norm, lag.max = 180, report = "maxlag")))
+# Compute and plot spatial distributions (boxplot) of maximum lag with significant autocorrelation and the first sequence of subsequent lags with signigicant autocorrelation (numbers will be much smaller)
+# There are cells where the original values contain 0 transpiration. They are not missing. E.g. Set2_p25deg %>% filter(var == "TVeg", inst == "ORCHIDEE", cellnr == 52). But they do result in warnings as the r becomes NaN, this is solved by putting also NA for maxlag or sublag
+memory <- Set2_p25deg %>% group_by(var, inst, cellnr) %>% summarize(maxlag = ifelse(test = any(is.na(norm)), yes = as.numeric(NA), no = acf_adapted(timeserie = norm, lag.max = 180, report = "maxlag")),
+  sublag = ifelse(test = any(is.na(norm)), yes = as.numeric(NA), no = acf_adapted(timeserie = norm, lag.max = 180, report = "sublag")))
 
-max_ecdf <- ggplot(data = max_memory, aes(x = maxlag, color = inst)) + geom_step(aes(y=..y..),stat="ecdf") + facet_wrap(~var)
+# After summarizing we lose the Spatial Classication, so do a join again:
+memory <- left_join(x = memory, y = class_p25)
 
-max_box <- ggplot(data = max_memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # W3RA seems to have only one type of memory in transpiration 
-pdf(file = "./An2_maxmem_box.pdf", width = 7, height = 6)
-max_box
+max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # W3RA seems to have only one type of memory in transpiration 
+sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models")
+sub_class <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = level1, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
+
+pdf(file = "./An2_submem_box.pdf", width = 7, height = 6)
+sub_box
 dev.off()
 
 # == 2.2 == Between variable (lagged) correlation: spatial pool
