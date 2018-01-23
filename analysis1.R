@@ -43,6 +43,8 @@ mutate_cond <- function(.data, condition, ..., envir = parent.frame()) {
 
 load(file = "../DATA/Set1_p05deg.RData") # Loads the spatio-temporal EVI series
 
+class_p05 <- read.csv("../DATA/spatial_classification_p05deg.csv", stringsAsFactors = FALSE) # spatial classification from pre-processing step 4
+
 # Visual inspection: (can be uncommented if desired)
 # Set1_p05deg %>% filter(cellnr %in% c(1,70,140)) %>% # rowwise increase of cellnr. Should be a transect, and show an aridity or EVI gradient
 #   ggplot(aes(x=time, y = evi)) + geom_line(aes(color = factor(cellnr)))
@@ -116,7 +118,10 @@ cell_arid <- full_join( x = full_join( x = full_join( x = full_join(x = full_joi
 # Therefore we select those by a negative annual average and put NA:
 cell_arid <- cell_arid %>% mutate_cond(condition = (is.na(evi_min) | evi_min < 0), evi_mean = as.numeric(NA), evi_max = as.numeric(NA), evi_min = as.numeric(NA), evi_inter = as.numeric(NA), evi_intra = as.numeric(NA), evi_rec = as.numeric(NA))
 
-# == 2.4 == Load groundwater data. Fill in missing Elevation values with the highres DEM. And add to the EVI metrics frame
+# == 2.4 == Join the spatial classification to the dataset
+cell_arid <- left_join(x = cell_arid, y = class_p05)
+
+# == 2.5 == Load groundwater data. Fill in missing Elevation values with the highres DEM. And add to the EVI metrics frame
 
 all_gw_data <- readRDS(file = "../DATA/All_gw_data.rds")  %>% mutate(x = Lon, y=Lat)  # Loading and short renaming for the nn_assignment-function
 # Although the precision of the groundwater observation coordinates has been improved, we still do not employ the highresolution DEM to look up elevations. We use the same resolution as the EVI and aridity dataset and therefore only have to do a single nn-assignment.
@@ -147,7 +152,7 @@ map_arid <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = ar
  scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Climatological AI (Prec/PotEvap) 2000-2014")
 
 map_mean <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_mean), shape = 15) + geom_point(data = all_gw_nn, mapping = aes(shape = Type), color = "red") +
-  scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Maximum of annual average EVI 2000-2017")
+  scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Mean of annual average EVI 2000-2017")
 
 map_max <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_max), shape = 15) + labs(title = "Maximum of annual average EVI 2000-2017")
 
@@ -159,6 +164,8 @@ map_intra <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = e
 
 map_rec <-  ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_rec), shape = 15) + labs(title = "Recovery in percent from mean EVI 2000-2009 to mean EVI 2011-2017") +
  scale_color_gradient2(limits = c(-60, 60))
+
+map_class <- ggplot(cell_filtered, aes(x = x, y = y)) + geom_point(aes(color = level2, shape = level1)) + labs(title = "classification of the groundwater observations") + scale_shape_discrete(na.value = 15)
 
 # == 3.1 == Exploratory plots
 
@@ -184,11 +191,25 @@ dev.off()
 # Filtered version for the recovery plot (would mostly have to do with )
 plot_rec <- ggplot(cell_complete %>% filter(Type == "series" & Period == "outside"), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = SWL)) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", x = "aridity index", y = "EVI rec")
 
-# SWL on x axis, as an explanatory variable
-ggplot(cell_filtered, aes(x = SWL.longterm, y = evi_mean)) + geom_point(aes(color = aridityindex)) + ylim(0,0.5) + xlim(0,50)
-ggplot(cell_filtered, aes(x = SWL.longterm, y = evi_rec)) + geom_point(aes(color = aridityindex))
+# == 3.2 == Spatial separation of the plots
 
-# == 3.2 == Fit different models to the recovery
+# Full EVI series regionalized:
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2)) # Large difference between east of darling and west of darling
+
+# only for groundwater points
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "mean EVI in points with measured SWL, regions are colored.")
+
+# In intra we really see the surface water supply stand out e.g. darling relative to east of and westof. and Macquarie
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "average of intra-annual stdev in EVI with measured SWL, regions are colored.")
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2)) # Baselevel changes
+
+# For inter we see most differences disappear. No difference east of darling west of darling despite differences in mean.
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = level2))
+
+# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow.
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(c(-5,50))
+
+# == 3.3 == Fit different models to the recovery
 
 # Only for evi_rec the pattern might be stratified enough. Here probably something can be said about the influence of groundwater on 
 split_level <- 10
