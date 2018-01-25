@@ -99,7 +99,7 @@ evi_rec <- Set1_p05deg %>% mutate(before = time <= ymd("2009-12-31"), after = ti
   mutate(place = ifelse( test = (!before & !after), yes = "inter", no = ifelse( test = before, yes = "before", no = "after"))) %>%
   group_by(cellnr, place) %>% summarise(avg_temp = mean(evi, na.rm = TRUE), before = unique(before), after = unique(after)) %>%
   group_by(cellnr) %>%
-  do((.[.$after,3] - .[.$before,3])/.[.$before,3]*100) %>%  # for each cellnr: (new-old)/old * 100 percent
+  do((.[.$after,3] - .[.$before,3])) %>%  # for each cellnr: (new-old)/old * 100 percent #/.[.$before,3]*100
   rename(evi_rec = avg_temp) %>% ungroup()
 
 # == 2.3 == Flatten temporal dimension of the aridity data and merge with summary statistics
@@ -206,8 +206,8 @@ ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_
 # For inter we see most differences disappear. No difference east of darling west of darling despite differences in mean.
 ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = level2))
 
-# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow.
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(c(-5,50))
+# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow. Actually a lot deeper than the others on average: cell_filtered %>% group_by(level2) %>% summarize(meanswl = mean(SWL))
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(0,0.06)
 
 # == 3.3 == Fit different models to the recovery
 
