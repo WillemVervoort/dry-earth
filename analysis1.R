@@ -2,8 +2,8 @@
 
 # Script for analysis 1
 # The workflow is as follows: the Set1 dataset at p05deg contains EVI timeseries for each location. With several summary metrics (see methodology and table 1 of the report) we characterise a certain drought response and take out the temporal dimension.
-# Set1 also already includes the aridity index from highres meteo sets. We add the groundwater observations to basically construct have a spatial collection of three continuous variables usable for regression: groundwater depth, climatological aridity.
-# In the last part of the script these are explored, figures produced and summary statistics computed.
+# Set1 also already includes the aridity index from highres meteo sets. We add the groundwater observations to basically construct have a spatial collection of three continuous variables usable for regression: groundwater depth, climatological aridity and an EVI metric.
+# In the last part of the script these are explored, figures produced and summary statistics computed. The interpretation is aided by a spatial separation of different regions whose reference tables have been build in 'spatial_classification.R'
 
 require(tibble)
 require(lubridate)
@@ -45,10 +45,6 @@ load(file = "../DATA/Set1_p05deg.RData") # Loads the spatio-temporal EVI series
 
 class_p05 <- read.csv("../DATA/spatial_classification_p05deg.csv", stringsAsFactors = FALSE) # spatial classification from pre-processing step 4
 
-# Visual inspection: (can be uncommented if desired)
-# Set1_p05deg %>% filter(cellnr %in% c(1,70,140)) %>% # rowwise increase of cellnr. Should be a transect, and show an aridity or EVI gradient
-#   ggplot(aes(x=time, y = evi)) + geom_line(aes(color = factor(cellnr)))
-
 # == 2.1 == Quality control
 
 # There are 190629 low quality pixels. This is determined by the first two bits in the quality sequence, if "00" then the quality is good. See MODIS metadata document table 5. The low quality ones are either not produced or 'most probably cloudy'. Note that Analysis 2 currently does not have a quality control.
@@ -66,15 +62,12 @@ evi_intra <- Set1_p05deg %>% mutate(yr = year(time)) %>% group_by(cellnr, yr) %>
   summarise(stdev = ifelse(test = (sum(!is.na(evi)) >= th_nr_mo), yes = sd(evi, na.rm = TRUE), no = as.numeric(NA))) %>% 
   group_by(cellnr) %>% # Overrides previous grouping
   summarise(evi_intra = ifelse(test = (sum(!is.na(stdev)) >= th_nr_yr), yes = mean(stdev, na.rm = TRUE), no = as.numeric(NA))) # Computes the average of the Standard deviation. However, places NA when the number of present years is lower than the threshold.
-# In the end this results in some negative values, because of negative mean evi's in certain years (and thus negative COV in that year) Leave uncorrected now STILL THE CASE WITH STDEV?
-
-# na_set <- Set1_p05deg %>% mutate(yr = year(time)) %>% group_by(cellnr, yr) %>% summarise(nrna = sum(is.na(evi))) # there are quite some 
 
 # Inter-annual variation: Standard deviation in annual average EVI values.
 evi_inter <- Set1_p05deg %>% mutate(yr = year(time)) %>% group_by(cellnr, yr) %>% 
   summarise(ann_avg = ifelse(test = (sum(!is.na(evi)) >= th_nr_mo), yes = mean(evi, na.rm = TRUE), no = as.numeric(NA))) %>% 
-  group_by(cellnr) %>%
-  summarise(evi_inter = ifelse(test = (sum(!is.na(ann_avg)) >= th_nr_yr), yes = sd(ann_avg, na.rm = TRUE), no = as.numeric(NA))) # Automatically 
+  group_by(cellnr) %>% # Overrides previous grouping
+  summarise(evi_inter = ifelse(test = (sum(!is.na(ann_avg)) >= th_nr_yr), yes = sd(ann_avg, na.rm = TRUE), no = as.numeric(NA))) # Also places NA when too litle values are available.
 
 # Average of yearly means. Not equal to overall mean because group sizes differ
 evi_mean <- Set1_p05deg %>% mutate(yr = year(time)) %>% group_by(cellnr, yr) %>% 
@@ -95,11 +88,11 @@ evi_max <- Set1_p05deg %>% mutate(yr = year(time)) %>% group_by(cellnr, yr) %>%
   summarise(evi_max = ifelse(test = (sum(!is.na(ann_avg)) >= th_nr_yr), yes = max(ann_avg, na.rm = TRUE), no = as.numeric(NA)))
 
 # Change/recovery growth in mean evi from before 2010 (inside drought) to the period after 2011 (fully recovered)
-evi_rec <- Set1_p05deg %>% mutate(before = time <= ymd("2009-12-31"), after = time >= ymd("2011-01-01")) %>%
-  mutate(place = ifelse( test = (!before & !after), yes = "inter", no = ifelse( test = before, yes = "before", no = "after"))) %>%
+evi_rec <- Set1_p05deg %>% mutate(before = time <= ymd("2009-12-31"), after = time >= ymd("2011-01-01")) %>% # Boolean variables for subsetting
+  mutate(place = ifelse( test = (!before & !after), yes = "inter", no = ifelse( test = before, yes = "before", no = "after"))) %>% # Creation of text variable for easy classification in the plots.
   group_by(cellnr, place) %>% summarise(avg_temp = mean(evi, na.rm = TRUE), before = unique(before), after = unique(after)) %>%
   group_by(cellnr) %>%
-  do((.[.$after,3] - .[.$before,3])) %>%  # for each cellnr: (new-old)/old * 100 percent #/.[.$before,3]*100
+  do((.[.$after,3] - .[.$before,3])) %>%  # This executes a computation for each cellnr that already had its averages for the different periods computed. In a previous version the recovery was defined in percentages: (new-old)/old * 100 percent. But this clouds how much vegetation grew in the absolute sense.
   rename(evi_rec = avg_temp) %>% ungroup()
 
 # == 2.3 == Flatten temporal dimension of the aridity data and merge with summary statistics
@@ -111,33 +104,32 @@ cell_arid <- Set1_p05deg %>% select(x,y,cellnr,aridityindex,time) %>%
 
 cell_arid <- full_join( x = full_join( x = full_join( x = full_join(x = full_join(x = full_join(x = cell_arid, y=evi_mean), y = evi_max), y = evi_min), y = evi_inter), y = evi_intra), y = evi_rec)
 
-# Some cells lie in lakes, these generally at some point obtain negative values and due to salts show an opposite temporal trajectory.
-# One of these large values (19.6) has a weird timeseries, also in the negative. Apparently it lies in Lake Numalla in Queensland:
+# Some cells lie in lakes, these generally at some point obtain negative values and due to salts show an opposite temporal trajectory. One example of this is Lake Numalla in Queensland:
 #Set1_p05deg %>% filter(cellnr == 11557) %>% ggplot(aes(x = time, y = evi)) + geom_line() 
 
-# Therefore we select those by a negative annual average and put NA:
+# Therefore we select those with a negative annual average and put NA for the all other unreliable metrics.
 cell_arid <- cell_arid %>% mutate_cond(condition = (is.na(evi_min) | evi_min < 0), evi_mean = as.numeric(NA), evi_max = as.numeric(NA), evi_min = as.numeric(NA), evi_inter = as.numeric(NA), evi_intra = as.numeric(NA), evi_rec = as.numeric(NA))
 
 # == 2.4 == Join the spatial classification to the dataset
 cell_arid <- left_join(x = cell_arid, y = class_p05)
 
-# == 2.5 == Load groundwater data. Fill in missing Elevation values with the highres DEM. And add to the EVI metrics frame
+# == 2.5 == Load groundwater data. Fill in missing Elevation values with a DEM dataset. And add to the EVI metrics frame
 
-all_gw_data <- readRDS(file = "../DATA/All_gw_data.rds")  %>% mutate(x = Lon, y=Lat)  # Loading and short renaming for the nn_assignment-function
-# Although the precision of the groundwater observation coordinates has been improved, we still do not employ the highresolution DEM to look up elevations. We use the same resolution as the EVI and aridity dataset and therefore only have to do a single nn-assignment.
+all_gw_data <- readRDS(file = "../DATA/All_gw_data.rds")  %>% mutate(x = Lon, y=Lat)  # Loading and short renaming to comply with the nn_assignment-function
 Set3_dem_p05deg <- readRDS(file = "../DATA/Set3_dem_p05deg.rds") %>% mutate(cellnr = 1:n()) # Loading of the DEM and assigning cellnrs in the zonal direction first.
 
-# The groundwater data are also temporal summaries, and can be assigned by assigning the observations to the NN-gridpoint. However, there can be two records (SWL and SWL.longterm) and multiple observations per cell.
-all_gw_nn <- nn_assignment(cellframe = cell_arid, obsframe = all_gw_data, cellsize = 0.05) # this results in 321 unique cellnrs. For the other observations we will have to average. The maximum of nobs in a single cell is apparently 33
+# Note that although the precision of the groundwater observation coordinates has been improved, we still do not employ the highresolution DEM to look up elevations. We use the same resolution as the EVI and aridity dataset and therefore only have to do a single neirest neighbour assignment to link groundwater obs to the DEM and to the EVI metrics.
+all_gw_nn <- nn_assignment(cellframe = cell_arid, obsframe = all_gw_data, cellsize = 0.05) # This results multiple observations per cell (321 unique nncellnr's). The maximum number of observations in a single cell is apparently 33. This makes that we have to summarize them with a median, but we keep the types of measurements distinct.
 
-# Give supplementary elevation as the variable 'Elev2' to replace 'Elev' where nothing is measured.
+# Small intermediate step to provide supplementary DEM elevation as the variable 'Elev2' to replace 'Elev' where nothing is measured.
 all_gw_nn$Elev2 <- vapply(X = all_gw_nn$nncellnr, FUN.VALUE = 1, FUN = function(x) Set3_dem_p05deg$Elev[which(Set3_dem_p05deg$cellnr == x)])
 all_gw_nn <- all_gw_nn %>% mutate_cond(condition = is.na(Elev), Elev = Elev2)
 
+# Now do the summarizing while the types remain distinct.
 gw_assigned_to_cell <- all_gw_nn %>% select(nncellnr, Elev, Depth.Compl, Date.Compl, Type, Period, N, SWL) %>% 
-  group_by(nncellnr, Type, Period) %>% # This says: for all observations linked to a certain nncellnr (so multiple when two or more lie in the same cell): do the following
+  group_by(nncellnr, Type, Period) %>% # This says: for all observations linked to a certain nncellnr (so multiple when two or more lie in the same cell): do the following:
   summarise_all(funs(median(., na.rm = TRUE))) %>% # The median method is chosen because it makes more sense for the Dates.
-  rename(cellnr = nncellnr) %>% ungroup() # Rename to variable that can be used for joining to the EVI summary statistics set.
+  rename(cellnr = nncellnr) %>% ungroup() # Rename to variable that can be used for joining these groundwater observations to the EVI summary statistics set.
 
 # right_join means that all cellnrs in gw_assigned are taken from cell_arid
 cell_complete <- full_join(x = cell_arid, y = gw_assigned_to_cell)
@@ -147,88 +139,78 @@ cell_filtered <- right_join(x = cell_arid, y = gw_assigned_to_cell)
 # Part 3 Actual analysis
 # ===========================
 
-# == 3.0 == Maps for Willem
-map_arid <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = aridityindex), shape = 15) + scale_colour_gradientn(colours = brewer.pal(n = 11, name = "RdYlBu")) + geom_point(data = all_gw_nn, mapping = aes(shape = Type), color = "black") +
- scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Climatological AI (Prec/PotEvap) 2000-2014")
+# # == 3.0 == Maps for email to Willem, can be uncommented if desired.
+# map_arid <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = aridityindex), shape = 15) + scale_colour_gradientn(colours = brewer.pal(n = 11, name = "RdYlBu")) + geom_point(data = all_gw_nn, mapping = aes(shape = Type), color = "black") +
+#  scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Climatological AI (Prec/PotEvap) 2000-2014")
+# 
+# map_mean <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_mean), shape = 15) + geom_point(data = all_gw_nn, mapping = aes(shape = Type), color = "red") +
+#   scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Mean of annual average EVI 2000-2017")
+# 
+# map_max <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_max), shape = 15) + labs(title = "Maximum of annual average EVI 2000-2017")
+# 
+# map_min <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_min), shape = 15) + labs(title = "Minimum of annual average EVI 2000-2017")
+# 
+# map_inter <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_inter), shape = 15) + labs(title = "Stdev in annual average EVI values 2000-2017")
+# 
+# map_intra <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_intra), shape = 15) + labs(title = "Average of yearly Stdev in monthly EVI values 2000-2017")
+# 
+# map_rec <-  ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_rec), shape = 15) + labs(title = "Recovery from mean EVI 2000-2009 to mean EVI 2011-2017") + scale_color_gradient(limits = c(-0.08, 0.08))
 
-map_mean <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_mean), shape = 15) + geom_point(data = all_gw_nn, mapping = aes(shape = Type), color = "red") +
-  scale_shape_manual(values = c(1,2)) + labs(shape = "groundwater data type", title = "Mean of annual average EVI 2000-2017")
+# == 3.1 == Plot of the spatial distribution of groundwater observations and their classification.
 
-map_max <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_max), shape = 15) + labs(title = "Maximum of annual average EVI 2000-2017")
+pal_class <- brewer.pal(n = length(unique(cell_complete$level2)), name = "Set1")
 
-map_min <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_min), shape = 15) + labs(title = "Minimum of annual average EVI 2000-2017")
+map_class <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = level2), shape = 15) + 
+  scale_color_manual(values = pal_class) +
+  geom_point(data = cell_filtered, color = "black") +
+  labs(title = "classification of the groundwater observations", color = "region", x = "longitude", y = "latitude") # With the current bounding boxes we have no groundwater observations for cooper creek.
+pdf(file = "./An1_map_class.pdf", width = 6, height = 4.5)
+map_class
+dev.off()
 
-map_inter <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_inter), shape = 15) + labs(title = "Stdev in annual average EVI values 2000-2017")
+# == 3.2 == EVI behaviour plots including spatial separation
 
-map_intra <- ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_intra), shape = 15) + labs(title = "Average of yearly Stdev in monthly EVI values 2000-2017")
+# The first set of plots does not map groundwater as a continuous variable. Previous versions of analysis 1 showed that the full collection of points has a lot of noise and that spatial separation makes more sense. E.g: ggplot(cell_complete %>% arrange(!is.na(SWL)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = SWL, alpha = !is.na(SWL))) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", alpha = "SWL measured?", x = "aridity index", y = "Average intra-annual EVI stdev") 
 
-map_rec <-  ggplot(cell_complete, aes(x = x, y = y)) + geom_point(aes(color = evi_rec), shape = 15) + labs(title = "Recovery in percent from mean EVI 2000-2009 to mean EVI 2011-2017") +
- scale_color_gradient2(limits = c(-60, 60))
-
-map_class <- ggplot(cell_filtered, aes(x = x, y = y)) + geom_point(aes(color = level2, shape = level1)) + labs(title = "classification of the groundwater observations") + scale_shape_discrete(na.value = 15)
-
-# == 3.1 == Exploratory plots
-
-#plot_min <- ggplot(cell_complete %>% arrange(!is.na(SWL.longterm)), aes(x = aridityindex, y = evi_min)) + geom_point(aes(color = SWL.longterm, alpha = !is.na(SWL.longterm))) + scale_color_continuous(limits = c(0,40)) + labs(color = "SWL [m]", alpha = "SWL measured?", x = "aridity index", y = "Min annual EVI") 
-
-plot_mean <- ggplot(cell_complete %>% arrange(!is.na(SWL)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = SWL, alpha = !is.na(SWL))) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", alpha = "SWL measured?", x = "aridity index", y = "Mean annual EVI") 
-# There seems to be a cluster on top of the linear trend: Places where higher mean EVI's are reached because groundwater is shallow. The linear trend itself shows that drier areas are in the absolute sense on average less vegetated, throughout the whole timeseries.
-pdf(file = "./An1_mean_cont.pdf", width = 7, height = 4.5)
+plot_mean <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "Average of annual EVI") # Large difference between east of darling and west of darling. The linear trend itself shows that drier areas are in the absolute sense on average less vegetated, throughout the whole timeseries.
+pdf(file = "./An1_mean_all.pdf", width = 7, height = 4.5)
 plot_mean
 dev.off()
 
-plot_intra <- ggplot(cell_complete %>% arrange(!is.na(SWL)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = SWL, alpha = !is.na(SWL))) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", alpha = "SWL measured?", x = "aridity index", y = "Average intra-annual EVI stdev") 
-pdf(file = "./An1_intra_cont.pdf", width = 7, height = 4.5)
+# The difference beteen EOD and WOD has to do with the mean groundwater level. And clearly the water availability of the macquarie marches (chicken and egg between groundwater and surface water wetland) is the thing lifting it from the general trend:
+regional_levels <- cell_filtered %>% group_by(level2) %>% summarize(meanswl = mean(SWL))
+# In graphical form this is not very visible:
+ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2, size = SWL)) +
+  scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + 
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(title = "mean EVI in points with measured SWL")
+
+plot_intra <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "average of intra-annual stdev in EVI") 
+# Baselevel increases with increasing wetness, but the maximym of intra-annual variability is high around 0.25 and for areas with surface water and ephemeral dynamics. E.g. darling relative to EOD and WOD, and Macquarie
+pdf(file = "./An1_intra_all.pdf", width = 7, height = 4.5)
 plot_intra
 dev.off()
 
-plot_inter <- ggplot(cell_complete %>% arrange(!is.na(SWL)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = SWL, alpha = !is.na(SWL))) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", alpha = "SWL measured?", x = "aridity index", y = "Inter-annual EVI stdev")
+plot_inter <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "stdev in annual EVI averages") 
 # The interannual COV of annual averages were very much influenced by the fact that in this short timeseries drought is present for about halve the time. The extreme values of the drought influence the mean (reduce it) and are then suddenly less extreme from the Standard deviation point of view.
-pdf(file = "./An1_inter_cont.pdf", width = 7, height = 4.5)
+# For inter we see most differences disappear. No difference east of darling west of darling despite differences in mean.
+# However, the ephemeral shocks are clearly visible.
+pdf(file = "./An1_inter_all.pdf", width = 7, height = 4.5)
 plot_inter
 dev.off()
 
-# Filtered version for the recovery plot (would mostly have to do with )
-plot_rec <- ggplot(cell_complete %>% filter(Type == "series" & Period == "outside"), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = SWL)) + scale_color_continuous(limits = c(0,50)) + labs(color = "SWL [m]", x = "aridity index", y = "EVI rec")
-
-# == 3.2 == Spatial separation of the plots
-
-# Full EVI series regionalized:
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2)) # Large difference between east of darling and west of darling
-
-# only for groundwater points
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "mean EVI in points with measured SWL, regions are colored.")
-
-# In intra we really see the surface water supply stand out e.g. darling relative to east of and westof. and Macquarie
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "average of intra-annual stdev in EVI with measured SWL, regions are colored.")
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2)) # Baselevel changes
-
-# For inter we see most differences disappear. No difference east of darling west of darling despite differences in mean.
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = level2))
-
-# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow. Actually a lot deeper than the others on average: cell_filtered %>% group_by(level2) %>% summarize(meanswl = mean(SWL))
-ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(0,0.06)
-
-# == 3.3 == Fit different models to the recovery
-
-# Only for evi_rec the pattern might be stratified enough. Here probably something can be said about the influence of groundwater on 
-split_level <- 10
-gw_shallow <- lm(evi_rec ~ aridityindex, data = cell_filtered %>% filter(SWL.longterm < split_level))
-gw_deep <- lm(evi_rec ~ aridityindex, data = cell_filtered %>% filter(split_level  <= SWL.longterm))
-
-pal1 <- brewer.pal(3, "Set1")
-
-plot_rec <- ggplot(data = cell_filtered, aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = SWL.longterm >= split_level)) + scale_color_brewer(palette = "Set1") + geom_abline(intercept = gw_shallow$coefficients[1], slope = gw_shallow$coefficients[2], color = pal1[1]) + geom_abline(intercept = gw_deep$coefficients[1], slope = gw_deep$coefficients[2], color = pal1[2]) + labs(color = paste("SWL deeper than", split_level, "m", sep = " "), y = "Recovery of mean EVI after 2010 [percent]", x = "aridity index")
-pdf(file = "./An1_rec_10m.pdf", width = 7, height = 4.5)
+plot_rec <-  ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "Recovery from mean EVI 2000-2009 to mean EVI 2011-2017") +
+  ylim(-0.05, 0.08) + geom_hline(yintercept = 0, lty = 2)
+#ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(0,0.06)
+# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow. Actually a lot deeper than the others on average. This seems to confirm that groundwater availability leads to lower collapse and thus recovery. And that apparently the large inter shocks of the ephemeral systems of Cooper Creek are just the normal workings, and not really reflected in the recovery. THe different recovery between the northern transect and the southern transact may have to do with meteorology. Check anomaly maps
+pdf(file = "./An1_rec_all.pdf", width = 7, height = 4.5)
 plot_rec
 dev.off()
-
-# A test for significant difference between deep and shallow models is not done with an interaction term (https://stats.stackexchange.com/questions/55501/test-a-significant-difference-between-two-slope-values) but by evaluating the sampling distrubution of difference in the intercept. This is a linear combination of two (assumed independent) sampling distributions with: sd_diff = sqrt( sd_1^2 + sd_2^2) and mu_diff = mu_1 - mu_2
-# We will test whether deep has a higher intercept than shallow (and the positive difference differs significantly from zero.)
-diff_mean <- gw_deep$coefficients[1] - gw_shallow$coefficients[1]
-diff_sd <- sqrt( coef(summary(gw_deep))["(Intercept)", "Std. Error"]^2 + coef(summary(gw_shallow))["(Intercept)", "Std. Error"]^2)
-qnorm(p = c(0.05, 0.1), mean = diff_mean, sd = diff_sd) # In the first case zero does not lie in the lower tail, in the second case it does. Therefore, at the 0.1 confidence level: a g.w. level below 10 m results in a larger recovery at the end of the drought than when it is shallower and the drought had less of an impact.
-
-# However, probably the assumptions for a Least Squares Estimation are not valid. Expected value and variance of the residuals seem dependend on x. Non-linear model?  
-plot(y = residuals.lm(gw_shallow), x = gw_shallow$model$aridityindex)
-plot(y = residuals.lm(gw_deep), x = gw_deep$model$aridityindex)

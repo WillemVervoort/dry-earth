@@ -12,7 +12,7 @@ st_wdar <- list(west = 141, north = -31, east = 142, south = -31.75)
 
 nt_war <- list(west = 145.8, north = -26, east = 146.5, south = -27)
 nt_dry <- list(west = 143.3, north = -26.5, east = 144.3, south = -27.25)
-nt_cc <- list(west = 140.7, north = -26.4, east = 141.7, south = -27)
+nt_cc <- list(west = 141.7, north = -26, east = 142.2, south = -26.4) # With this small box we select only areas in the ephemeral system creating a more unified hydrological selection than when also dry neighbouring cells are selected. The downside is that there are no groundwater observations.
 
 # Function that creates the cellnrs lists with the bounding boxes above, then the hierarchy of lists is transformed to the table format. Calls upon two other functions below.
 table_at_resolution <- function(resolutionset) {
