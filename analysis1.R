@@ -180,17 +180,32 @@ plot_mean
 dev.off()
 
 # The difference beteen EOD and WOD has to do with the mean groundwater level. And clearly the water availability of the macquarie marches (chicken and egg between groundwater and surface water wetland) is the thing lifting it from the general trend:
-regional_levels <- cell_filtered %>% group_by(level2) %>% summarize(meanswl = mean(SWL))
+regional_levels <- cell_filtered %>% group_by(level2) %>% summarize(mean_swl = mean(SWL)) %>% rename(region = level2)
+write.csv(x = regional_levels, file = "./An1_regional_swl.csv", row.names = FALSE)
 # In graphical form this is not very visible:
 ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_mean)) + geom_point(aes(color = level2, size = SWL)) +
   scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + 
   scale_color_manual(values = pal_class, na.value = "grey50") +
   labs(title = "mean EVI in points with measured SWL")
 
+plot_min <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_min)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "Minimum in annual EVI") # Large difference between east of darling and west of darling. The linear trend itself shows that drier areas are in the absolute sense on average less vegetated, throughout the whole timeseries.
+pdf(file = "./An1_min_all.pdf", width = 7, height = 4.5)
+plot_min
+dev.off()
+
+plot_max <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_max)) + geom_point(aes(color = level2)) +
+  scale_color_manual(values = pal_class, na.value = "grey50") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "Maximum in annual EVI") # Large difference between east of darling and west of darling. The linear trend itself shows that drier areas are in the absolute sense on average less vegetated, throughout the whole timeseries.
+pdf(file = "./An1_max_all.pdf", width = 7, height = 4.5)
+plot_max
+dev.off()
+
 plot_intra <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_intra)) + geom_point(aes(color = level2)) +
   scale_color_manual(values = pal_class, na.value = "grey50") +
   labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "average of intra-annual stdev in EVI") 
-# Baselevel increases with increasing wetness, but the maximym of intra-annual variability is high around 0.25 and for areas with surface water and ephemeral dynamics. E.g. darling relative to EOD and WOD, and Macquarie
+# Baselevel increases with increasing wetness, but the maximum of intra-annual variability is high around 0.25 and for areas with surface water and ephemeral dynamics. E.g. darling relative to EOD and WOD, and Macquarie
 pdf(file = "./An1_intra_all.pdf", width = 7, height = 4.5)
 plot_intra
 dev.off()
@@ -198,7 +213,7 @@ dev.off()
 plot_inter <- ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_inter)) + geom_point(aes(color = level2)) +
   scale_color_manual(values = pal_class, na.value = "grey50") +
   labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "stdev in annual EVI averages") 
-# The interannual COV of annual averages were very much influenced by the fact that in this short timeseries drought is present for about halve the time. The extreme values of the drought influence the mean (reduce it) and are then suddenly less extreme from the Standard deviation point of view.
+# The standard deviation in annual averages is influenced by the fact that in this short timeseries drought is present for about half the time. The extreme values of the drought influence the mean (reduce it) and are then suddenly less extreme from the Standard deviation point of view.
 # For inter we see most differences disappear. No difference east of darling west of darling despite differences in mean.
 # However, the ephemeral shocks are clearly visible.
 pdf(file = "./An1_inter_all.pdf", width = 7, height = 4.5)
@@ -207,10 +222,10 @@ dev.off()
 
 plot_rec <-  ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2)) +
   scale_color_manual(values = pal_class, na.value = "grey50") +
-  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "Recovery from mean EVI 2000-2009 to mean EVI 2011-2017") +
+  labs(color = "region", x = "Aridity Index (Prec/PotEvap)", y = "mean EVI 2011-2017 minus mean EVI 2000-2009") +
   ylim(-0.05, 0.08) + geom_hline(yintercept = 0, lty = 2)
 #ggplot(cell_complete %>% arrange(!is.na(level2)), aes(x = aridityindex, y = evi_rec)) + geom_point(aes(color = level2, size = SWL)) + scale_size(trans = 'sqrt', limits = c(0,50), breaks = c(0,2,5,10,30,40)) + labs(title = "recovery in EVI with measured SWL, regions are colored.") + ylim(0,0.06)
-# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow. Actually a lot deeper than the others on average. This seems to confirm that groundwater availability leads to lower collapse and thus recovery. And that apparently the large inter shocks of the ephemeral systems of Cooper Creek are just the normal workings, and not really reflected in the recovery. THe different recovery between the northern transect and the southern transact may have to do with meteorology. Check anomaly maps
+# For recovery, we see that westofdarling recovers the most. And its groundwater measurements aren't that shallow. Actually a lot deeper than the others on average. This seems to confirm that groundwater availability leads to lower collapse and thus recovery. And that apparently the large inter shocks of the ephemeral systems of Cooper Creek are just the normal workings, and not really reflected in the recovery. It seems reasonable to separate the interpretation of the northern transect from the southern one as the lower recovery values in the north have do with less meteorological change in the north (Chiew 2014)
 pdf(file = "./An1_rec_all.pdf", width = 7, height = 4.5)
 plot_rec
 dev.off()
