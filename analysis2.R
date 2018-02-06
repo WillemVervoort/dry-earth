@@ -10,6 +10,7 @@ require(dplyr)
 require(tidyr)
 require(ggplot2)
 require(hydroGOF)
+require(RColorBrewer)
 
 # ===========================
 # Part 0 Load the data
@@ -44,9 +45,10 @@ pdf(file = "./An2_ori_dist.pdf", width = 9, height = 6.5)
 An2_ori_dist
 dev.off()
 
-# Kling-Gupta efficiency on the spatial and temporal pool. ORCHIDEE is the best.
+# Kling-Gupta efficiency on the spatial and temporal pool. ORCHIDEE is the best. Further proof that H-TESSEL estimate deviates and that W3RA method of residual from energy balance is also different.
 observed <- Set2_p25deg %>% filter(var == "Precip-PotEvap" & is.na(inst)) %>% pull(untr)
 modelkge <- Set2_p25deg %>% filter(var == "Precip-PotEvap" & !is.na(inst)) %>% group_by(var,inst) %>% summarise(kge = KGE(sim = untr, obs = observed))
+write.csv(x = modelkge, file = "./An2_ori_kge.csv", row.names = FALSE)
 
 # ===========================
 # Part 2 Standardized values, because seasonality and cell-climatology has to be removed for correlation.
@@ -91,9 +93,14 @@ memory <- Set2_p25deg %>% group_by(var, inst, cellnr) %>% summarize(maxlag = ife
 # After summarizing we lose the Spatial Classication, so do a join again:
 memory <- left_join(x = memory, y = class_p25)
 
+plot_pal <- brewer.pal(n = length(unique(class_p25$level2)), name = "Set1")
+
 max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # W3RA seems to have only one type of memory in transpiration 
 sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models")
-sub_class <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = level1, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
+sub_class <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
+sub_class2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
+sub_spat <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
+sub_spat2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, fill = inst)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~level2)
 
 pdf(file = "./An2_submem_box.pdf", width = 7, height = 6)
 sub_box
