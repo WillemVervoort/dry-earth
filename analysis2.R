@@ -11,6 +11,7 @@ require(tidyr)
 require(ggplot2)
 require(hydroGOF)
 require(RColorBrewer)
+require(gridExtra)
 
 # ===========================
 # Part 0 Load the data
@@ -21,6 +22,8 @@ load("../DATA/Set2_p25deg.RData")
 # Spatial classification by a left join: creates NA in the level variables when cells do not belong to a group.
 class_p25 <- read.csv("../DATA/spatial_classification_p25deg.csv")
 Set2_p25deg <- left_join(x = Set2_p25deg, y = class_p25)
+# Order the spatial classification
+Set2_p25deg$level2 <- factor(x = Set2_p25deg$level2, levels = c("westofdarling", "eastofdarling", "macquarie", "dry", "coopercreek", "warrego", "darling"))
 
 # Add model labels
 Set2_p25deg$inst <- factor(x = Set2_p25deg$inst, levels = c("ecmwf", "polytechfr", "uu", "anu"), labels = c("H-TESSEL", "ORCHIDEE", "PCR-GLOBWB", "W3RA"))
@@ -30,20 +33,49 @@ Set2_p25deg$inst <- factor(x = Set2_p25deg$inst, levels = c("ecmwf", "polytechfr
 # ===========================
 
 # Spatial and temporal pooling to compute the mean. The differences between them can inform us about whether one is wetter or drier in the absolute sense.
-modelmeans <- Set2_p25deg %>% filter(var != "Evi") %>% group_by(var,inst) %>% summarise(meanval = mean(untr, na.rm=TRUE), meannorm = mean(norm, na.rm= TRUE), meanprob = mean(prob, na.rm=TRUE))
-# Export a table that shows differences in the model means
-An2_ori_mean <- modelmeans %>% select(-meannorm, -meanprob) %>% mutate(unit = ifelse(test = (var == "TotMoist"), yes = "kg m-2", no = "kg m-2 s-1" )) # the NA entry for the institution of Precip-PotEvap are the SILO observations.
-write.csv(x = An2_ori_mean, file = "./An2_ori_mean.csv", row.names = FALSE)
+domainmeans <- Set2_p25deg %>% filter(var != "Evi") %>% group_by(var,inst) %>% summarise(meanval = mean(untr, na.rm=TRUE))
+regionmeans <- Set2_p25deg %>% group_by(var,inst,level2) %>% summarise(meanregval = mean(untr, na.rm=TRUE), x = ymd("2012-10-01")) %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+# Export a table that shows differences in the domain model means.
+An2_ori_domainmean <- domainmeans %>% mutate(unit = ifelse(test = (var == "TotMoist"), yes = "kg m-2", no = "kg m-2 s-1" )) # the NA entry for the institution of Precip-PotEvap are the SILO observations.
+write.csv(x = An2_ori_domainmean, file = "./An2_ori_domainmean.csv", row.names = FALSE)
 
-#ggplot(data = modelmeans, aes(x=inst, y=meanval)) + geom_bar(stat = "identity") + facet_wrap(~var, scales = "free_y") # Simple histogram of the table values
+# Graphs of the spatial mean value distribution through time for three interesting Regions. The Evi observarions and SILO observations are included. ORCHIDEE and PCR-GLOBWB seem to have the closest Precip-PotEvap estimate to SILO.
+An2_ori_regset <- Set2_p25deg %>% group_by(var,inst,time, level2) %>% summarise(meanfieldval = mean(untr, na.rm=TRUE)) %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
 
-# Graphs of the spatial mean value distribution through time. ORCHIDEE and PCR-GLOBWB seem to have the closest Precip-PotEvap estimate to SILO.
-An2_ori_mean <- Set2_p25deg %>% group_by(var,inst,time) %>% summarise(meanfieldval = mean(untr, na.rm=TRUE)) %>% ggplot(aes(x=time, y=meanfieldval)) + geom_line(aes(color = inst)) + facet_wrap(~var, scales = "free_y", ncol = 1)
-# The same goes for the graph of the original value as a distribution through time and space
-An2_ori_dist <- Set2_p25deg %>% ggplot(aes(x=untr)) + geom_freqpoly(aes(colour = inst, lty = is.na(inst), y = (..count..)/sum(..count..))) + facet_wrap(~var, scales = "free", ncol = 2) + labs(x = "untransformed values", y = "frequency", colour = "Models", title = "Distribution of measured (Evi) and modeled variables through time and space") + scale_linetype_manual(guide = FALSE, values = c("solid","twodash"))
-pdf(file = "./An2_ori_dist.pdf", width = 9, height = 6.5)
-An2_ori_dist
+evi_ori_plot <- ggplot(data = An2_ori_regset %>% filter(var == "Evi"), aes(x=time, y=meanfieldval)) + 
+  geom_line(col = "grey50") + 
+  geom_text(data = regionmeans %>% filter(var == "Evi"), aes(label = round(x = meanregval, 2), x = x), y = 0.4, col = "grey50", size = 4) +
+  facet_wrap(~level2, ncol = 3) +
+  labs(x = "", y = "EVI [-]")
+
+tveg_ori_plot <- ggplot(data = An2_ori_regset %>% filter(var == "TVeg"), aes(x=time, y=meanfieldval)) + 
+  geom_line(aes(col = inst)) + 
+  facet_wrap(~level2, ncol = 3) +
+  geom_text(data = regionmeans %>% filter(var == "TVeg") %>% group_by(level2) %>% mutate(y = c(0.000045,0.00004,0.000035,0.00003)), aes(label = round(x = meanregval, 7), x = x, col = inst, y = y), size = 4) +
+  labs(x = "", y = "TVeg [kg m−2 s−1]") + guides(color = FALSE)
+
+pp_ori_plot <- ggplot(data = An2_ori_regset %>% filter(var == "Precip-PotEvap"), aes(x=time, y=meanfieldval)) + 
+  geom_line(aes(col = inst)) + 
+  facet_wrap(~level2, ncol = 3) +
+  geom_text(data = regionmeans %>% filter(var == "Precip-PotEvap") %>% group_by(level2) %>% mutate(y = c(-0.0002,-0.00025,-0.0003,-0.00035,-0.0004)), aes(label = round(x = meanregval, 6), x = x, col = inst, y = y), size = 4) +
+  labs(x = "", y = "Prec-PotEvap [kg m−2 s−1]") + guides(color = FALSE)
+
+totmoist_ori_plot <- ggplot(data = An2_ori_regset %>% filter(var == "TotMoist"), aes(x=time, y=meanfieldval)) + 
+  geom_line(aes(col = inst)) + 
+  facet_wrap(~level2, ncol = 3) +
+  geom_text(data = regionmeans %>% filter(var == "TotMoist") %>% group_by(level2) %>% mutate(y = c(900,800,700,600)), aes(label = round(x = meanregval, 0), x = x, col = inst, y = y), size = 4) +
+  labs(x = "Time", y = "Tot Moist [kg m−2]") + guides(color = FALSE)
+
+# This plot is adapted in InkScape, to align the whitespaces better and add a legend.
+pdf(file = "./An2_ori_regseries.pdf", width = 11, height = 9)
+grid.arrange(evi_ori_plot, tveg_ori_plot, pp_ori_plot, totmoist_ori_plot, ncol=1)
 dev.off()
+
+# # This distribution through time and space is discarded because it is less intuitive for this case than a timeserie depicting the drought.
+# An2_ori_dist <- Set2_p25deg %>% ggplot(aes(x=untr)) + geom_freqpoly(aes(colour = inst, lty = is.na(inst), y = (..count..)/sum(..count..))) + facet_wrap(~var, scales = "free", ncol = 2) + labs(x = "untransformed values", y = "frequency", colour = "Models", title = "Distribution of measured (Evi) and modeled variables through time and space") + scale_linetype_manual(guide = FALSE, values = c("solid","twodash"))
+# pdf(file = "./An2_ori_dist.pdf", width = 9, height = 6.5)
+# An2_ori_dist
+# dev.off()
 
 # Kling-Gupta efficiency on the spatial and temporal pool. ORCHIDEE is the best. Further proof that H-TESSEL estimate deviates and that W3RA method of residual from energy balance is also different.
 observed <- Set2_p25deg %>% filter(var == "Precip-PotEvap" & is.na(inst)) %>% pull(untr)
@@ -95,11 +127,15 @@ memory <- left_join(x = memory, y = class_p25)
 
 plot_pal <- brewer.pal(n = length(unique(class_p25$level2)), name = "Set1")
 
-max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # W3RA seems to have only one type of memory in transpiration 
-sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models")
-sub_class <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
-sub_class2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
-sub_spat <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
+max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # The maximum lag was the previous way of doing things, but values are very high. W3RA seems to have only one type of memory in transpiration 
+sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models") # Differences between max_box and sub_box interpretations are in currently in the log.
+
+# Plot memory for the interesting regions.
+sub_mem_set <- memory %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+sub_class <- ggplot(data = sub_mem_set, aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
+sub_class2 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
+sub_class3 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, color = inst)) + geom_boxplot() + facet_grid(level2~var)
+sub_spat <- ggplot(data = sub_mem_set, aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
 sub_spat2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, fill = inst)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~level2)
 
 pdf(file = "./An2_submem_box.pdf", width = 7, height = 6)
