@@ -125,22 +125,23 @@ memory <- Set2_p25deg %>% group_by(var, inst, cellnr) %>% summarize(maxlag = ife
 # After summarizing we lose the Spatial Classication, so do a join again:
 memory <- left_join(x = memory, y = class_p25)
 
-plot_pal <- brewer.pal(n = length(unique(class_p25$level2)), name = "Set1")
-
 max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # The maximum lag was the previous way of doing things, but values are very high. W3RA seems to have only one type of memory in transpiration 
-sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models") # Differences between max_box and sub_box interpretations are in currently in the log.
-
-# Plot memory for the interesting regions.
-sub_mem_set <- memory %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
-sub_class <- ggplot(data = sub_mem_set, aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
-sub_class2 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
-sub_class3 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, color = inst)) + geom_boxplot() + facet_grid(level2~var)
-sub_spat <- ggplot(data = sub_mem_set, aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
-sub_spat2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, fill = inst)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~level2)
+sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models") # Differences between max_box and sub_box interpretations are in currently in the log. Sub_box is the one currently exported for the report.
 
 pdf(file = "./An2_submem_box.pdf", width = 7, height = 6)
 sub_box
 dev.off()
+
+# Plot memory for the interesting regions.
+sub_mem_set <- memory %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+#plot_pal <- brewer.pal(n = length(unique(class_p25$level2)), name = "Set1")
+#sub_class <- ggplot(data = sub_mem_set, aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
+#sub_class2 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
+sub_class3 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, color = inst)) + geom_boxplot() + facet_grid(level2~var)
+#sub_spat <- ggplot(data = sub_mem_set, aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
+#sub_spat2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, fill = inst)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~level2)
+
+
 
 # == 2.2 == Between variable (lagged) correlation: spatial pool
 
@@ -187,28 +188,59 @@ shiftseries <- function(series, maxtimelag, cellspertime) {
   return(data)
 }
 
-# Vegetation is our main interest so primvar. Because we also have negative lags, we can see influence of other variables on TVeg and of TVeg on the other variables. Strictly spoken it is not influence but correlation or 'synchronicity in the timeseries'
-maximum_lag <- 7
-w3ra_cor <- cor_norm_pool(fullset = Set2_p25deg, primvar = "TVeg", model = "W3RA", maxlag = maximum_lag)
-htessel_cor <- cor_norm_pool(fullset = Set2_p25deg, primvar = "TVeg", model = "H-TESSEL", maxlag = maximum_lag)
-pcr_cor <- cor_norm_pool(fullset = Set2_p25deg, primvar = "TVeg", model = "PCR-GLOBWB", maxlag = maximum_lag) #  
-orch_cor <- cor_norm_pool(fullset = Set2_p25deg, primvar = "TVeg", model = "ORCHIDEE", maxlag = maximum_lag) # 
+# Vegetation is our main interest so primvar. Because we also have negative lags, we can see influence of other variables on TVeg and for positive shifst of TVeg on the other variables. Strictly spoken it is not influence but correlation or 'synchronicity in the timeseries'
+# Then we also want a possibility to compute the spatial pooled correlation for the full field or for selected subregions, which is why the combination of correlation matrices to dataframes is wrapped in the following function:
+compute_and_merge_to_frame <- function(poolset = Set2_p25deg, maximum_lag = 7, subregions = NULL) {
+  if (is.null(subregions)) { # Meaning we want a full spatial pool
+    labels <- "full"
+  } else {
+    labels <- subregions
+  }
+  
+  # Loop of one when full spatial, of number of subregions when subregions were supplied
+  corframes <- lapply(X = labels, FUN = function(label) { 
+    if (label == "full") { # Either all regions are selected (even NA) when the set is full, otherwise only the subregion
+      fullset <- poolset
+    } else {
+      fullset <- poolset %>% filter(level2 == label)
+    } 
+    # Compute the correlations
+    w3ra_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "W3RA", maxlag = maximum_lag)
+    htessel_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "H-TESSEL", maxlag = maximum_lag)
+    pcr_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "PCR-GLOBWB", maxlag = maximum_lag) #  
+    orch_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "ORCHIDEE", maxlag = maximum_lag) #
+    
+    # Put the four correlation matrices into a single frame.
+    all_cor <- list("W3RA" = w3ra_cor, "H-TESSEL" = htessel_cor, "PCR-GLOBWB" = pcr_cor, "ORCHIDEE" = orch_cor)
+    intermediate <- lapply(X= seq_along(all_cor), FUN = function(x) {
+      var_interest <- all_cor[[x]][(1:(maximum_lag*2+1)),-(1:(maximum_lag*2+1))]
+      var_interest$var_lag <- ((-maximum_lag):maximum_lag) # This is more understandable for plotting. -7 means that EVI_0 is compared to TVeg_7
+      var_interest$Model <- names(all_cor)[x]
+      return(gather(data = var_interest, key = "var", value = "spearmancor", -var_lag, -Model))
+    })
+    corframe <- do.call(what = rbind, args = intermediate)
+    corframe$region <- label
+    return(corframe)
+  })
+  return(do.call(what = rbind, args = corframes))
+}
 
-# Prepare a plot of correlations with TVeg. X-axis are the different lags.
-all_cor <- list("W3RA" = w3ra_cor, "H-TESSEL" = htessel_cor, "PCR-GLOBWB" = pcr_cor, "ORCHIDEE" = orch_cor)
-intermediate <- lapply(X= seq_along(all_cor), FUN = function(x) {
-  var_interest <- all_cor[[x]][(1:(maximum_lag*2+1)),-(1:(maximum_lag*2+1))]
-  var_interest$TVeg_lag <- ((-maximum_lag):maximum_lag)
-  var_interest$Model <- names(all_cor)[x]
-  return(gather(data = var_interest, key = "var", value = "spearmancor", -TVeg_lag, -Model))
-})
+# Apply it for the complete field. 
+full_cor <- compute_and_merge_to_frame(poolset = Set2_p25deg, maximum_lag = 7)
 
-plot_cor <- ggplot(data = do.call(what = rbind, args = intermediate), aes(x = TVeg_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_wrap(~var) + labs(x = "Shift in modeled transpiration timeseries [months]", y = "Correlation between transpiration and other variable ")
-pdf(file = "./An2_TVeglag_cor.pdf", width = 9.5, height = 5)
-plot_cor
+plot_full_cor <- ggplot(data = full_cor, aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_wrap(~var) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
+pdf(file = "./An2_full_cor.pdf", width = 9.5, height = 5)
+plot_full_cor
 dev.off()
 
-# == 2.3 == Between variable (lagged) correlation: spatially distributed
+# Apply it for the three regions we are interested in. Currently used in the report.
+spat_cor <- compute_and_merge_to_frame(poolset = Set2_p25deg, maximum_lag = 7, subregions = c("westofdarling", "eastofdarling","macquarie"))
+plot_spat_cor <- ggplot(data = spat_cor, aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_grid(region~var) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
+pdf(file = "./An2_spat_cor.pdf", width = 9.5, height = 9)
+plot_spat_cor
+dev.off()
+
+# == 2.3 == Between variable (lagged) correlation: spatially distributed. Not used anymore, the spatial split is done above. Not informative to do it again per cell.
 
 # For specific lags/variable combinations, the following function computes the correlation for each cell (899 vector combinations) and outputs a field of correlation values.
 # Check: https://cran.r-project.org/web/packages/dplyr/vignettes/programming.html for the way this function uses 'enquo' and !!:
@@ -261,6 +293,8 @@ cor_observations <- function(fullset, maxlag) {
 maximum_lag <- 7
 cor_obs <- data.frame(spearmancor = cor_observations(fullset = Set2_p25deg, maxlag = maximum_lag)[(1:(maximum_lag*2+1)),-(1:(maximum_lag*2+1))], lag = (-maximum_lag):maximum_lag)
 An2_ppevi_cor <- ggplot(data = cor_obs, aes(x = lag, y = spearmancor)) + geom_line() + labs(x = "shift in SILO Precip-PotEvap series in months", y = "Spearman rank correlation with measured EVI")
+# These observational results are pretty counterintuitive. One would expect the observed meteorological aridity to precede the Observed EVI. Likely this follows from the way the potential evaporation is estimated.
+
 
 # ===========================
 # Part 3 Probability transformed values
