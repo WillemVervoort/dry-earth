@@ -32,14 +32,19 @@ Set2_p25deg$inst <- factor(x = Set2_p25deg$inst, levels = c("ecmwf", "polytechfr
 # Part 1 Original values
 # ===========================
 
+# These untransformed values are used to assess the models behaviour in the absolute sense. Which ones are on average wet? which ones overestimate? This is evaluated by domain-wide averages, timeseries of regional averages and Kling-Gupta Efficiencies.
+
 # Spatial and temporal pooling to compute the mean. The differences between them can inform us about whether one is wetter or drier in the absolute sense.
 domainmeans <- Set2_p25deg %>% filter(var != "Evi") %>% group_by(var,inst) %>% summarise(meanval = mean(untr, na.rm=TRUE))
-regionmeans <- Set2_p25deg %>% group_by(var,inst,level2) %>% summarise(meanregval = mean(untr, na.rm=TRUE), x = ymd("2012-10-01")) %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+
 # Export a table that shows differences in the domain model means.
 An2_ori_domainmean <- domainmeans %>% mutate(unit = ifelse(test = (var == "TotMoist"), yes = "kg m-2", no = "kg m-2 s-1" )) # the NA entry for the institution of Precip-PotEvap are the SILO observations.
 write.csv(x = An2_ori_domainmean, file = "./An2_ori_domainmean.csv", row.names = FALSE)
 
 # Graphs of the spatial mean value distribution through time for three interesting Regions. The Evi observarions and SILO observations are included. ORCHIDEE and PCR-GLOBWB seem to have the closest Precip-PotEvap estimate to SILO.
+# Two datasets are used. The regionmeans above (temporal pool) for the annotated text:
+regionmeans <- Set2_p25deg %>% group_by(var,inst,level2) %>% summarise(meanregval = mean(untr, na.rm=TRUE), x = ymd("2012-10-01")) %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+# and the following for the timeseries:
 An2_ori_regset <- Set2_p25deg %>% group_by(var,inst,time, level2) %>% summarise(meanfieldval = mean(untr, na.rm=TRUE)) %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
 
 evi_ori_plot <- ggplot(data = An2_ori_regset %>% filter(var == "Evi"), aes(x=time, y=meanfieldval)) + 
@@ -88,7 +93,7 @@ write.csv(x = modelkge, file = "./An2_ori_kge.csv", row.names = FALSE)
 
 # == 2.1 == Within variable autocorrelation
 
-# Function for computation of Autocorrelation and confidence intervals. Needs to be supplied with a numerical vector that contains the timeserie
+# Function for computation of Autocorrelation and confidence intervals. Needs to be supplied with a numerical vector that contains the timeserie of usually a single cell. It builds on the functionality of the base acf()
 # Chatfield's Analysis of Time Series (1980) states that in the limit the variance in r is normally distributed and has a variance equal to 1/n_obs so stdev is (1/(n_obs))^0.5
 # We make it into a two-tailed confidence interval. See also https://stats.stackexchange.com/questions/211628/
 # It can report the full output, the maximum lag at which autocorrelation is significantly different from zero, and the last lag in which there is uninterrupted (subsequent) significant positive autocorrelation. 
@@ -125,45 +130,44 @@ memory <- Set2_p25deg %>% group_by(var, inst, cellnr) %>% summarize(maxlag = ife
 # After summarizing we lose the Spatial Classication, so do a join again:
 memory <- left_join(x = memory, y = class_p25)
 
-max_box <- ggplot(data = memory, aes(x = var, y = maxlag, colour = inst)) + geom_boxplot() + labs(y = "maximum lag in months with significantly autocorrelated values", x ="Variable", colour = "Models") # The maximum lag was the previous way of doing things, but values are very high. W3RA seems to have only one type of memory in transpiration 
+# We export a domain wide plot of the memory in each cell. 
 sub_box <- ggplot(data = memory, aes(x = var, y = sublag, colour = inst)) + geom_boxplot() + labs(y = "lag in months with uninterrupted significantly autocorrelated values", x ="Variable", colour = "Models") # Differences between max_box and sub_box interpretations are in currently in the log. Sub_box is the one currently exported for the report.
 
 pdf(file = "./An2_submem_box.pdf", width = 7, height = 6)
 sub_box
 dev.off()
 
-# Plot memory for the interesting regions.
-sub_mem_set <- memory %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
+# Memory could be plotted for the interesting regions. But due to interpretation these figures do not add to the analysis, and are not exported.
+#sub_mem_set <- memory %>% filter(level2 %in% c("eastofdarling", "westofdarling", "macquarie"))
 #plot_pal <- brewer.pal(n = length(unique(class_p25$level2)), name = "Set1")
 #sub_class <- ggplot(data = sub_mem_set, aes(x = level2, y = sublag, colour = inst)) + geom_boxplot() + facet_wrap(~var)
 #sub_class2 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, fill = level2)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~var) + scale_color_manual(values = plot_pal, na.value = "grey50")
-sub_class3 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, color = inst)) + geom_boxplot() + facet_grid(level2~var)
+#sub_class3 <- ggplot(data = sub_mem_set, aes(x = inst, y = sublag, color = inst)) + geom_boxplot() + facet_grid(level2~var)
 #sub_spat <- ggplot(data = sub_mem_set, aes(x = var, y = sublag, colour = inst)) + geom_jitter(aes(shape = level2), stat = "summary", fun.y = "mean")
 #sub_spat2 <- ggplot(data = memory %>% filter(!is.na(level2)), aes(x = var, y = sublag, fill = inst)) + geom_bar(stat = "summary", fun.y = "mean", position = "dodge") + facet_wrap(~level2)
 
 
-
 # == 2.2 == Between variable (lagged) correlation: spatial pool
 
-# Spearman rank correlation or kendalls tau between variables (an possibly for lagged combinations too)
+# Spearman rank correlation between variables (an possibly for lagged combinations too) is used to assess model performance: namely correlation between EVI and transpiration, and also internal model workings.
 # Function that prepares the data from the viewpoint of one variable, that is shifted with different lags by a different function (plus and minus, amount of months can be chosen) and compared to the other variables in their original form.
-# It does a spatial pool (on timestep shift requires with the amount of cellnr's) with one named correlation matrix as output.
+# It does a spatial pool (on timestep shift requires with the amount of cellnr's, done by an intermediate function called "shiftseries") with one named correlation matrix as output.
 cor_norm_pool <- function(fullset, primvar = "TVeg", model = "W3RA", maxlag = 7) {
   
   stopifnot(any(unique(fullset$var) == primvar))
   stopifnot(any(unique(fullset$inst) == model))
   
   ncell <- length(unique(fullset$cellnr))
-  primvars <- paste0(primvar, as.character((-maxlag):maxlag)) # Lag is applied in two ways: forward and delay
-  othervars <- setdiff(unique(fullset$var), primvar)
+  primvars <- paste0(primvar, as.character((-maxlag):maxlag)) # Names for the shifted series. Lag is applied in two ways: forward and delay
+  othervars <- setdiff(unique(fullset$var), primvar) # Names for the other variables.
   
   # Construct a dataframe with shifted series: the normal and lagged versions of the primary variable.
   primseries <- fullset$norm[which((fullset$var == primvar) & (fullset$inst == model))]
-  stopifnot(ncell*length(unique(fullset$time)) == length(primseries))
+  stopifnot(ncell*length(unique(fullset$time)) == length(primseries)) # Small check whether ncell and time dimensions match
   primshifted <- shiftseries(series = primseries, maxtimelag = maxlag, cellspertime = ncell)
-  colnames(primshifted) <- primvars
+  colnames(primshifted) <- primvars # Name them (preserved in output by cor function applied later on)
   
-  # Construct a dataframe with the other variables.Evi doesn't need to be filtered by model. Precip-PotEvap observations are not included, only modeled ones
+  # Construct a dataframe with the other variables. Evi doesn't need to be filtered by model. Precip-PotEvap observations are not included, only modeled ones
   otherseries <- sapply(X = othervars, FUN = function(name) {
     if (name == "Evi") { 
       return(fullset$norm[which(fullset$var == name)])
@@ -172,9 +176,9 @@ cor_norm_pool <- function(fullset, primvar = "TVeg", model = "W3RA", maxlag = 7)
     }
   })
   otherseries <- as.data.frame(otherseries)
-  colnames(otherseries) <- othervars
+  colnames(otherseries) <- othervars # Name them (preserved in output by cor function applied later on)
 
-  return(as.data.frame(cor(cbind(primshifted, otherseries), use = "complete.obs", method = "spearman")))
+  return(as.data.frame(cor(cbind(primshifted, otherseries), use = "complete.obs", method = "spearman"))) # cor() outputs a named matrix, transformed to dataframe
 }
 
 # Intermediate function that temporally lags a series. Because the series can be filled per cellnr, and we want to shift a single timestep each lag, it will fill 'fields' of size ncell with NA for each shift: 
@@ -188,29 +192,28 @@ shiftseries <- function(series, maxtimelag, cellspertime) {
   return(data)
 }
 
-# Vegetation is our main interest so primvar. Because we also have negative lags, we can see influence of other variables on TVeg and for positive shifst of TVeg on the other variables. Strictly spoken it is not influence but correlation or 'synchronicity in the timeseries'
-# Then we also want a possibility to compute the spatial pooled correlation for the full field or for selected subregions, which is why the combination of correlation matrices to dataframes is wrapped in the following function:
+# With cor_norm_pool we can compute the correlation for a full field and a single model. But we want to do it for multiple models and also want the possibility to compute it for selected subregions. Therefore we have a top-level function that wraps the combination of multiple correlation matrices to dataframes:
 compute_and_merge_to_frame <- function(poolset = Set2_p25deg, maximum_lag = 7, subregions = NULL) {
   if (is.null(subregions)) { # Meaning we want a full spatial pool
     labels <- "full"
-  } else {
+  } else { # In this case we have provided the names of the subregions
     labels <- subregions
   }
   
-  # Loop of one when full spatial, of number of subregions when subregions were supplied
+  # Loop of one when full spatial, and of number of subregions when subregions were supplied
   corframes <- lapply(X = labels, FUN = function(label) { 
     if (label == "full") { # Either all regions are selected (even NA) when the set is full, otherwise only the subregion
       fullset <- poolset
     } else {
       fullset <- poolset %>% filter(level2 == label)
     } 
-    # Compute the correlations
+    # Compute the correlations per model. Vegetation is our main interest so primvar. Because we also have negative lags, we can see influence of other variables on TVeg and for positive shifst of TVeg on the other variables. Strictly spoken it is not influence but correlation or 'synchronicity in the timeseries'
     w3ra_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "W3RA", maxlag = maximum_lag)
     htessel_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "H-TESSEL", maxlag = maximum_lag)
     pcr_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "PCR-GLOBWB", maxlag = maximum_lag) #  
     orch_cor <- cor_norm_pool(fullset = fullset, primvar = "TVeg", model = "ORCHIDEE", maxlag = maximum_lag) #
     
-    # Put the four correlation matrices into a single frame.
+    # Put the four correlation matrices into a single frame, and loop over it to extract the desired columns.
     all_cor <- list("W3RA" = w3ra_cor, "H-TESSEL" = htessel_cor, "PCR-GLOBWB" = pcr_cor, "ORCHIDEE" = orch_cor)
     intermediate <- lapply(X= seq_along(all_cor), FUN = function(x) {
       var_interest <- all_cor[[x]][(1:(maximum_lag*2+1)),-(1:(maximum_lag*2+1))]
@@ -225,22 +228,22 @@ compute_and_merge_to_frame <- function(poolset = Set2_p25deg, maximum_lag = 7, s
   return(do.call(what = rbind, args = corframes))
 }
 
-# Apply it for the complete field. 
+# Apply it for the complete field. And export the figure. Not used in the article
 full_cor <- compute_and_merge_to_frame(poolset = Set2_p25deg, maximum_lag = 7)
-
 plot_full_cor <- ggplot(data = full_cor, aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_wrap(~var) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
 pdf(file = "./An2_full_cor.pdf", width = 9.5, height = 5)
 plot_full_cor
 dev.off()
 
-# Apply it for the three regions we are interested in. Currently used in the report.
+# Apply it for the three regions we are interested in. Will likely be used in the article.
 spat_cor <- compute_and_merge_to_frame(poolset = Set2_p25deg, maximum_lag = 7, subregions = c("westofdarling", "eastofdarling","macquarie"))
 plot_spat_cor <- ggplot(data = spat_cor, aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_grid(region~var) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
 pdf(file = "./An2_spat_cor.pdf", width = 9.5, height = 9)
 plot_spat_cor
 dev.off()
 
-# == 2.3 == Between variable (lagged) correlation: spatially distributed. Not used anymore, the spatial split is done above. Not informative to do it again per cell.
+# == 2.3 == Between variable (lagged) correlation: spatially distributed. 
+## This is NOT used anymore. The spatial split is performed for three regions in spat_cor above. Not informative to do it again per cell.
 
 # For specific lags/variable combinations, the following function computes the correlation for each cell (899 vector combinations) and outputs a field of correlation values.
 # Check: https://cran.r-project.org/web/packages/dplyr/vignettes/programming.html for the way this function uses 'enquo' and !!:
@@ -271,12 +274,13 @@ cor_norm_cell <- function(fullset, model = "W3RA", var1 = "TVeg", lag1 = 0, var2
   return(corrset)
 }
 
-# Make a plot for interesting cases. This perhaps may be matched to maps of groundwater depths if this data in Analysis 1 gets better.
+# Make a plot for interesting cases.
 test <- cor_norm_cell(fullset = Set2_p25deg, model = "PCR-GLOBWB", var1 = "TVeg", lag1 = 0, var2 = "Evi")
-ggplot(data = test, aes(x = x, y = y)) + geom_point(aes(color = cellspear), size = 5)
+test_plot <- ggplot(data = test, aes(x = x, y = y)) + geom_point(aes(color = cellspear), size = 5)
 
-# == 2.3 == Between observations only: Correlation of Observed Precip-PotEvap (at different lags) with observed EVI 
+# == 2.4 == Between observations only: Correlation of Observed Precip-PotEvap (at different lags) with observed EVI. 
 
+# This is just out of curiousity. 
 cor_observations <- function(fullset, maxlag) {
   ppseries <- fullset %>% filter(var == "Precip-PotEvap" & is.na(inst)) %>% pull(norm) # gets to normalized SILO
   varnames <- paste0("Precip-PotEvap", as.character((-maxlag):maxlag)) 
@@ -300,7 +304,7 @@ An2_ppevi_cor <- ggplot(data = cor_obs, aes(x = lag, y = spearmancor)) + geom_li
 # Part 3 Probability transformed values
 # ===========================
 
-# Drought defined as anything below the empirical 0.2 quantile? Then split into longer lasting droughts and shorter ones?
+# Drought defined as anything below the empirical 0.2 quantile. In literature you sometimes see also a split by duration, do after the threshold also distinguish longer lasting droughts and shorter ones.
 droughtset <- Set2_p25deg %>% mutate(dry = ifelse(prob < 0.2, yes = TRUE, no = FALSE)) %>% select(-prob, -untr, -norm)
 
 # Timeseries of area under the influence of drought.
