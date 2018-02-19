@@ -2,17 +2,18 @@
 
 # This is the meta script for Chiem's Australia research.
 # Place this in a desired folder with these other scripts:
-# download_modis_script.sh, download_e2o_script.sh, download_dem_script.sh, adapt_presup_script.sh, dataset_building.R, analysis1.R, analysis2.R
+# download_modis_script.sh, download_e2o_script.sh, download_dem_script.sh, adapt_presup_script.sh, dataset_building.R, analysis1.R, analysis2.R analysis_of_streamflow.R
 # this document:
 # modis_urls.txt 
 # and these presupplied data: 
 # All_gw_data.rds Precip_2000-2014_p05deg.nc PotEvap_2000-2014_p05deg.nc UtrechtSiloData_ncdf4.nc
+# str_coopercreek.csv str_darling.csv str_macquarie.csv str_warrego.csv
 # Then the rest of the downloading, processing and analyses will unfold there.
 
 # Create a dedicated DATA folder, as working directory for the pre-processing, and move presupplied data there
 echo 'Create DATA directory in' ${PWD}
 mkdir -p ./DATA/
-mv All_gw_data.rds Precip_2000-2014_p05deg.nc PotEvap_2000-2014_p05deg.nc UtrechtSiloData_ncdf4.nc ./DATA/
+mv All_gw_data.rds Precip_2000-2014_p05deg.nc PotEvap_2000-2014_p05deg.nc UtrechtSiloData_ncdf4.nc str_coopercreek.csv str_darling.csv str_macquarie.csv str_warrego.csv ./DATA/
 
 # Data-Preprocessing step 1
 # Download the data, crop spatial extent, average if needed, clip to temporal extent and create netCDF stacks.
@@ -54,11 +55,14 @@ cd ../RESULTS/
 
 # Analysis 1
 echo 'Start Analysis 1'
-# At this point the temporal dimension of the data gets modified. The full EVI time series of the tify datasets get aggregated to summary metrics for each cell. The groundwater values are added, as these are also temporal summaries. There is a quality control.
+# At this point the temporal dimension of the data gets modified. The full EVI time series of the tidy datasets get aggregated to summary metrics for each cell. The groundwater values are added, as these are also temporal summaries. There is a quality control.
 Rscript ../analysis1.R
 
+# The EVI metrics of some regions indicated episodic surface water supply. To support this argument we do a short analysis of the streamflow data. This data is presupplied but was originally downloaded from http://www.bom.gov.au/waterdata/. Additionally this script also produces a map of the study domain with locations of the discharge stations.
+Rscript ../analysis_of_streamflow.R
  
 # Analysis 2
+echo 'Start Analysis 2'
 # Comparison 2 EVI with E2O models at native model resolution (0.25 degree)
 Rscript ../analysis2.R
 
