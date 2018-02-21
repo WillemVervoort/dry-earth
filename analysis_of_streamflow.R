@@ -43,8 +43,8 @@ plot_df <- do.call(rbind,store)
 # Part 1 Streamflow plots
 # ===========================
 
-# normalisation of values for each station. Might be useful.
-plot_df <- plot_df %>% group_by(region) %>% mutate(normalized = scale(Value))
+# Remove NA and normalisation and probabilisation of values for each station, Might be useful.
+plot_df <- plot_df %>% filter(!is.na(Value)) %>% group_by(region) %>% mutate(normalized = scale(Value), probabilized = (rank(Value, ties.method = "min")-1)/(n()-1))
 
 plot_df$station_name <- factor(x = plot_df$station_name, levels = unique(plot_df$station_name), labels = c("Cooper Creek at Cullyamurra Water Hole", "Darling river at Louth", "Macquarie river at Pillicawarrina", "Warrego river at Cunnamulla Weir"))
 
@@ -61,10 +61,14 @@ pl
 flow_duration_norm <- ggplot(data = plot_df, aes(x = normalized)) + geom_step(aes(y=-..y..+1, color = region),stat="ecdf") + coord_flip() + labs(x = "Discharge [m3 s-1]", y = "Probability of exceedence") + ylim(0,0.3) + scale_color_manual(values = plot_pal)
 
 # Plot of unmodified values but on a logarithmic scale. This nicely fits with the interpretation that warrego is the least under influence of surface water supply. And that macquarie has the most steady stream, even though the peaks are not extremely large.
-flow_duration_log <- ggplot(data = plot_df, aes(x = Value)) + geom_step(aes(y=-..y..+1, color = region),stat="ecdf") + labs(x = "Discharge [m3 s-1]", y = "Probability of exceedence") + scale_x_log10() + scale_color_manual(values = plot_pal) + coord_flip() # the -y+1 is to transform non-exceedence (standard in cdf) to exceedence (standard in flow duration curves)
-pdf(file = "./An1_flow_duration_log.pdf", width = 5, height = 3)
+flow_duration_log <- ggplot(data = plot_df, aes(y = Value, x = 1-probabilized)) + geom_line(aes(color = region))  + scale_y_log10(limits = c(1,3000), breaks= c(1,10,100,1000)) + labs(y = "Discharge [m3 s-1]", x = "Probability of exceedence") + scale_color_manual(values = plot_pal) # the 1-x is to transform non-exceedence (standard in cdf) to exceedence (standard in flow duration curves)
+pdf(file = "./An1_flow_duration_log.pdf", width = 5, height = 2.5)
 flow_duration_log
 dev.off()
+#flow_duration_log <- ggplot(data = plot_df, aes(x = Value)) + geom_step(aes(y=-..y..+1, color = region),stat="ecdf") + labs(x = "Discharge [m3 s-1]", y = "Probability of exceedence")  + scale_color_manual(values = plot_pal) + coord_flip()  #+ scale_x_log10(limits = c(10,1000))
+
+# For this plot the cutoff filter needs to be uncommented. It is not used in the story of the report
+count_extremes <- ggplot(plot_df,aes(x = Time)) + geom_dotplot(aes(fill = region, color = region),method = "histodot", dotsize = 0.8, binwidth = interval(ymd("2018-01-01"), ymd("2018-04-01"))@.Data) + facet_wrap(~region) + scale_color_manual(values = plot_pal) + scale_fill_manual(values = plot_pal) 
 
 # ===========================
 # Part 2 Map making
