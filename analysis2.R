@@ -235,10 +235,11 @@ pdf(file = "./An2_full_cor.pdf", width = 9.5, height = 5)
 plot_full_cor
 dev.off()
 
-# Apply it for the three regions we are interested in. Will likely be used in the article.
+# Apply it for the three regions we are interested in. Is used in the article, while the Precip-PotEvap variable is left out.
 spat_cor <- compute_and_merge_to_frame(poolset = Set2_p25deg, maximum_lag = 7, subregions = c("westofdarling", "eastofdarling","macquarie"))
-plot_spat_cor <- ggplot(data = spat_cor, aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_grid(region~var) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
-pdf(file = "./An2_spat_cor.pdf", width = 9.5, height = 9)
+spat_cor$region <- factor(x = spat_cor$region, levels = levels(Set2_p25deg$level2)[1:3]) # Order the three regions as in the untransformed plot.
+plot_spat_cor <- ggplot(data = spat_cor %>% filter(var %in% c("Evi", "TotMoist")), aes(x = var_lag, y = spearmancor)) + geom_line(aes(color = Model)) + facet_grid(var~region) + labs(x = "Shift in variable timeseries [months]", y = "Correlation between the variable and transpiration")
+pdf(file = "./An2_spat_cor.pdf", width = 9.5, height = 6)
 plot_spat_cor
 dev.off()
 
