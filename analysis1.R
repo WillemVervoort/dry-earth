@@ -52,6 +52,14 @@ Set1_p05deg <- Set1_p05deg %>% mutate(goodqual = ifelse(test = (substr(x= qualit
   mutate(evi = ifelse(goodqual, evi, as.numeric(NA))) %>% #  We set these 190629 evi-values to NA
   select(-quality, -goodqual)
 
+# == 2.1.1 == Timeseries of average EVI
+
+# Small figure to introduce the drought signal in EVI in the article at the start of the empirical results.
+evi_series <- Set1_p05deg %>% group_by(time) %>% summarise(spat_average = mean(evi, na.rm = TRUE)) %>% ggplot(aes(x = time, y = spat_average)) + geom_line() + labs(x = "Time", y = "Spatial mean EVI")
+pdf(file = "./An1_spat_mean_evi.pdf", width = 8, height = 2.5)
+evi_series
+dev.off()
+
 # == 2.2 == Convert the EVI timeseries to summary statistics.
 
 th_nr_mo <- 4 # Threshold for how many monthly values should at least be present (within 12 months) to compute a yearly value 
